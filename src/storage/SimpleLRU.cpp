@@ -3,20 +3,25 @@
 namespace Afina {
 namespace Backend {
 
-// See MapBasedGlobalLockImpl.h
-bool SimpleLRU::Put(const std::string &key, const std::string &value) {
-    if (_lru_index.find(key) != _lru_index.end()) {
-        return Set(key, value);
-    }
-    return PutIfAbsent(key, value);
+bool SimpleLRU::_UpdateNode(SimpleLRU::lru_node_iterator &node_it, const std::string& value) {
+    lru_node &curr_node = node_it->second;
+    if (curr_node.key.size() + value.size() > _max_size) return false;
+    _MoveToHead(curr_node);
+    /*
+    Here _DeleteTail(value.size() - curr_node.value.size()) always returns True because
+    value.size() - curr_node.value.size() < value.size() < value.size() + curr_node.key.size() <= _max_size
+    and curr_node will remain in the head of the list
+    */
+    _DeleteTail(value.size() - curr_node.value.size());
+    _curr_size += value.size() - curr_node.value.size();
+    curr_node.value = value;
+    return true;
 }
 
-// See MapBasedGlobalLockImpl.h
-bool SimpleLRU::PutIfAbsent(const std::string &key, const std::string &value) {
-    if (_lru_index.find(key) != _lru_index.end() ||
-        !_DeleteTail(key.size() + value.size())) return false;
+bool SimpleLRU::_InsertNode(const std::string &key, const std::string &value) {
+    if (!_DeleteTail(key.size() + value.size())) return false;
     std::unique_ptr<lru_node> tmp(std::move(_lru_head));
-    _lru_head = std::make_unique<lru_node>(key, value, nullptr, std::move(tmp));
+    _lru_head = std::unique_ptr<lru_node>(new lru_node(key, value, nullptr, std::move(tmp)));
     if (_lru_head->next){
         _lru_head->next->prev = _lru_head.get();
     }
@@ -26,15 +31,25 @@ bool SimpleLRU::PutIfAbsent(const std::string &key, const std::string &value) {
 }
 
 // See MapBasedGlobalLockImpl.h
+bool SimpleLRU::Put(const std::string &key, const std::string &value) {
+    auto it = _lru_index.find(key);
+    if (it != _lru_index.end()) {
+        return _UpdateNode(it, value);
+    }
+    return _InsertNode(key, value);
+}
+
+// See MapBasedGlobalLockImpl.h
+bool SimpleLRU::PutIfAbsent(const std::string &key, const std::string &value) {
+    if (_lru_index.find(key) != _lru_index.end()) return false;
+    return _InsertNode(key, value);
+}
+
+// See MapBasedGlobalLockImpl.h
 bool SimpleLRU::Set(const std::string &key, const std::string &value) {
     auto it = _lru_index.find(key);
-    if (it == _lru_index.end() || key.size() + value.size() > _max_size) return false;
-    lru_node &curr_node = it->second;
-    _MoveToHead(curr_node);
-    _DeleteTail(key.size() + value.size() - curr_node.value.size());
-    _curr_size += key.size() + value.size() - curr_node.value.size();
-    curr_node.value = value;
-    return true;
+    if (it == _lru_index.end()) return false;
+    return _UpdateNode(it, value);
 }
 
 // See MapBasedGlobalLockImpl.h
@@ -66,8 +81,7 @@ bool SimpleLRU::Get(const std::string &key, std::string &value) {
     auto it = _lru_index.find(key);
     if (it == _lru_index.end()) return false;
     size_t len = it->second.get().value.size();
-    value.resize(len);
-    it->second.get().value.copy(value.data(), len);
+    value = it->second.get().value;
     return _MoveToHead(it->second);
 }
 

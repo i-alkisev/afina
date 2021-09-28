@@ -61,9 +61,15 @@ private:
         std::unique_ptr<lru_node> next;
     };
 
+    using lru_node_iterator = std::map<std::reference_wrapper<const std::string>, std::reference_wrapper<lru_node>, std::less<std::string>>::iterator;
+
     bool _MoveToHead(lru_node &node);
 
     bool _DeleteTail(std::size_t new_size);
+
+    bool _UpdateNode(lru_node_iterator &node_it, const std::string& value);
+
+    bool _InsertNode(const std::string &key, const std::string &value);
 
     // Maximum number of bytes could be stored in this cache.
     // i.e all (keys+values) must be not greater than the _max_size
