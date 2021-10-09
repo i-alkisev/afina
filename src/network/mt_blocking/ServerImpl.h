@@ -38,7 +38,7 @@ protected:
     /**
      * Method is running in the connection acceptor thread
      */
-    void OnRun();
+    void OnRun(int server_socket);
     void WorkerThread(int client_socket);
 
 private:
@@ -51,16 +51,15 @@ private:
     std::atomic<bool> running;
 
     // Server socket to accept connections on
-    int _server_socket;
+    // int _server_socket;
 
     // Thread to run network on
     std::thread _thread;
 
-    std::mutex _m_count;
+    std::mutex _mutex;
     std::size_t _possible_count_workers;
 
-    std::mutex _m_sockets;
-    std::set<int> _client_sockets;
+    std::set<int> _sockets;
 
     std::condition_variable _final;
 };

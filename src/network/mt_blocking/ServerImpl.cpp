@@ -29,7 +29,7 @@ namespace MTblocking {
 
 // See Server.h
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl, std::size_t max_count):
-    Server(ps, pl), _possible_count_workers(max_count) {}
+    Server(ps, pl), _possible_count_workers(max_count + 1) {}
 
 // See Server.h
 ServerImpl::~ServerImpl() {}
@@ -52,54 +52,53 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
     server_addr.sin_port = htons(port);       // TCP port number
     server_addr.sin_addr.s_addr = INADDR_ANY; // Bind to any address
 
-    _server_socket = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (_server_socket == -1) {
+    int server_socket = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server_socket == -1) {
         throw std::runtime_error("Failed to open socket");
     }
 
     int opts = 1;
-    if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
-        close(_server_socket);
+    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+        close(server_socket);
         throw std::runtime_error("Socket setsockopt() failed");
     }
 
-    if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        close(_server_socket);
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        close(server_socket);
         throw std::runtime_error("Socket bind() failed");
     }
 
-    if (listen(_server_socket, 5) == -1) {
-        close(_server_socket);
+    if (listen(server_socket, 5) == -1) {
+        close(server_socket);
         throw std::runtime_error("Socket listen() failed");
     }
 
     running.store(true);
-    _thread = std::thread(&ServerImpl::OnRun, this);
+    _sockets.insert(server_socket);
+    --_possible_count_workers;
+    _thread = std::thread(&ServerImpl::OnRun, this, server_socket);
+    _thread.detach();
 }
 
 // See Server.h
 void ServerImpl::Stop() {
     running.store(false);
-    shutdown(_server_socket, SHUT_RDWR);
-    std::unique_lock<std::mutex> lock_set(_m_sockets);
-    for (int socket: _client_sockets) {
+    std::unique_lock<std::mutex> lock(_mutex);
+    for (int socket: _sockets) {
         shutdown(socket, SHUT_RD);
     }
 }
 
 // See Server.h
 void ServerImpl::Join() {
-    std::unique_lock<std::mutex> lock_set(_m_sockets);
-    while (!_client_sockets.empty()){
-        _final.wait(lock_set);
+    std::unique_lock<std::mutex> lock(_mutex);
+    while (!_sockets.empty()){
+        _final.wait(lock);
     }
-    assert(_thread.joinable());
-    _thread.join();
-    close(_server_socket);
 }
 
 // See Server.h
-void ServerImpl::OnRun() {
+void ServerImpl::OnRun(int server_socket) {
     while (running.load()) {
         _logger->debug("waiting for connection...");
 
@@ -107,7 +106,7 @@ void ServerImpl::OnRun() {
         int client_socket;
         struct sockaddr client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
-        if ((client_socket = accept(_server_socket, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
+        if ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
             continue;
         }
 
@@ -133,18 +132,14 @@ void ServerImpl::OnRun() {
         }
 
         {
-            std::unique_lock<std::mutex> lock_count(_m_count);
+            std::unique_lock<std::mutex> lock(_mutex);
             if (!_possible_count_workers) {
                 close(client_socket);
                 _logger->warn("Impossible to accept a new client");
             }
             else {
                 --_possible_count_workers;
-                lock_count.unlock();
-                {
-                    std::unique_lock<std::mutex> lock_set(_m_sockets);
-                    _client_sockets.insert(client_socket);
-                }
+                _sockets.insert(client_socket);
                 std::thread worker = std::thread(&ServerImpl::WorkerThread, this, client_socket);
                 worker.detach();
             }
@@ -153,6 +148,18 @@ void ServerImpl::OnRun() {
 
     // Cleanup on exit...
     _logger->warn("Network stopped");
+
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        auto it = _sockets.find(server_socket);
+        assert(it != _sockets.end());
+        _sockets.erase(it);
+        ++_possible_count_workers;
+        close(server_socket);
+        if (!running.load() && _sockets.empty()) {
+            _final.notify_all();
+        }
+    }
 }
 
 void ServerImpl::WorkerThread(int client_socket) {
@@ -247,19 +254,15 @@ void ServerImpl::WorkerThread(int client_socket) {
 
     // We are done with this connection
     {
-        std::unique_lock<std::mutex> lock_set(_m_sockets);
-        auto it = _client_sockets.find(client_socket);
-        assert(it != _client_sockets.end());
-        _client_sockets.erase(it);
+        std::unique_lock<std::mutex> lock(_mutex);
+        auto it = _sockets.find(client_socket);
+        assert(it != _sockets.end());
+        _sockets.erase(it);
+        ++_possible_count_workers;
         close(client_socket);
-        if (!running.load() && _client_sockets.empty()) {
+        if (!running.load() && _sockets.empty()) {
             _final.notify_all();
         }
-    }
-
-    {
-        std::unique_lock<std::mutex> lock_count(_m_count);
-        ++_possible_count_workers;
     }
 }
 
