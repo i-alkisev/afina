@@ -65,7 +65,7 @@ private:
 
     bool _MoveToHead(lru_node &node);
 
-    bool _DeleteTail(std::size_t new_size);
+    void _DeleteTail(std::size_t new_size);
 
     bool _UpdateNode(lru_node_iterator &node_it, const std::string& value);
 

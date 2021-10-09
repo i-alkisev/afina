@@ -12,14 +12,17 @@ bool SimpleLRU::_UpdateNode(SimpleLRU::lru_node_iterator &node_it, const std::st
     value.size() - curr_node.value.size() < value.size() < value.size() + curr_node.key.size() <= _max_size
     and curr_node will remain in the head of the list
     */
-    _DeleteTail(value.size() - curr_node.value.size());
+    if (value.size() > curr_node.value.size()) {
+        _DeleteTail(value.size() - curr_node.value.size());
+    }
     _curr_size += value.size() - curr_node.value.size();
     curr_node.value = value;
     return true;
 }
 
 bool SimpleLRU::_InsertNode(const std::string &key, const std::string &value) {
-    if (!_DeleteTail(key.size() + value.size())) return false;
+    if (key.size() + value.size() > _max_size) return false;
+    _DeleteTail(key.size() + value.size());
     std::unique_ptr<lru_node> tmp(std::move(_lru_head));
     _lru_head = std::unique_ptr<lru_node>(new lru_node(key, value, nullptr, std::move(tmp)));
     if (_lru_head->next){
@@ -99,8 +102,7 @@ bool SimpleLRU::_MoveToHead(lru_node &node) {
     return true;
 }
 
-bool SimpleLRU::_DeleteTail(std::size_t new_size) {
-    if (new_size > _max_size) return false;
+void SimpleLRU::_DeleteTail(std::size_t new_size) {
     if (new_size + _curr_size > _max_size){
         lru_node *ptr = _lru_head.get();
         while (ptr->next) ptr = ptr->next.get();
@@ -116,7 +118,6 @@ bool SimpleLRU::_DeleteTail(std::size_t new_size) {
             }
         }
     }
-    return true;
 }
 
 } // namespace Backend
