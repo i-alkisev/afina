@@ -29,7 +29,7 @@ namespace MTblocking {
 
 // See Server.h
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl, std::size_t max_count):
-    Server(ps, pl), _possible_count_workers(max_count + 1) {}
+    Server(ps, pl), _max_connections(max_count) {}
 
 // See Server.h
 ServerImpl::~ServerImpl() {}
@@ -75,7 +75,6 @@ void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
 
     running.store(true);
     _sockets.insert(server_socket);
-    --_possible_count_workers;
     _thread = std::thread(&ServerImpl::OnRun, this, server_socket);
     _thread.detach();
 }
@@ -92,7 +91,7 @@ void ServerImpl::Stop() {
 // See Server.h
 void ServerImpl::Join() {
     std::unique_lock<std::mutex> lock(_mutex);
-    while (!_sockets.empty()){
+    while (running.load() || !_sockets.empty()){
         _final.wait(lock);
     }
 }
@@ -133,12 +132,11 @@ void ServerImpl::OnRun(int server_socket) {
 
         {
             std::unique_lock<std::mutex> lock(_mutex);
-            if (!_possible_count_workers) {
+            if (_sockets.size() == _max_connections + 1) {
                 close(client_socket);
                 _logger->warn("Impossible to accept a new client");
             }
             else {
-                --_possible_count_workers;
                 _sockets.insert(client_socket);
                 std::thread worker = std::thread(&ServerImpl::WorkerThread, this, client_socket);
                 worker.detach();
@@ -154,7 +152,6 @@ void ServerImpl::OnRun(int server_socket) {
         auto it = _sockets.find(server_socket);
         assert(it != _sockets.end());
         _sockets.erase(it);
-        ++_possible_count_workers;
         close(server_socket);
         if (!running.load() && _sockets.empty()) {
             _final.notify_all();
@@ -258,7 +255,6 @@ void ServerImpl::WorkerThread(int client_socket) {
         auto it = _sockets.find(client_socket);
         assert(it != _sockets.end());
         _sockets.erase(it);
-        ++_possible_count_workers;
         close(client_socket);
         if (!running.load() && _sockets.empty()) {
             _final.notify_all();

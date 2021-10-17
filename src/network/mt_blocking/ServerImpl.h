@@ -57,7 +57,7 @@ private:
     std::thread _thread;
 
     std::mutex _mutex;
-    std::size_t _possible_count_workers;
+    std::size_t _max_connections;
 
     std::set<int> _sockets;
 
