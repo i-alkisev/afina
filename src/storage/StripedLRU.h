@@ -11,8 +11,11 @@ namespace Backend {
 
 class StripedLRU: public Afina::Storage {
 public:
-    StripedLRU (size_t memory_limit = 4 * 1024, size_t stripe_count = 4);
-    ~StripedLRU() {}
+    static StripedLRU Create_StripedLRU(size_t memory_limit = 4 * 1024, size_t stripe_count = 4);
+    
+    ~StripedLRU() = default;
+
+    StripedLRU(StripedLRU&& other);
 
     // Implements Afina::Storage interface
     bool Put(const std::string &key, const std::string &value) override;
@@ -30,6 +33,8 @@ public:
     bool Get(const std::string &key, std::string &value) override;
 
 private:
+
+    StripedLRU(size_t stripe_limit, size_t stripe_count);
 
     size_t _GetShardNum(const std::string &key);
 

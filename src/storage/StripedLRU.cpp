@@ -6,11 +6,18 @@
 namespace Afina {
 namespace Backend {
 
-StripedLRU::StripedLRU (size_t memory_limit, size_t stripe_count) {
+StripedLRU StripedLRU::Create_StripedLRU(size_t memory_limit, size_t stripe_count) {
     size_t stripe_limit = memory_limit / stripe_count;
     if (stripe_limit < 1024) {
         throw std::runtime_error("Cache size of each shard is too small (less than 1Kb)");
     }
+    return StripedLRU(stripe_limit, stripe_count);
+}
+
+StripedLRU::StripedLRU(StripedLRU&& other): _shards(std::move(other._shards)) {}
+
+
+StripedLRU::StripedLRU (size_t stripe_limit, size_t stripe_count) {
     _shards.reserve(stripe_count);
     for (size_t i = 0; i < stripe_count; ++i){
         _shards.emplace_back(new ThreadSafeSimplLRU(stripe_limit));
