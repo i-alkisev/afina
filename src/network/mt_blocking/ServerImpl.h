@@ -41,9 +41,6 @@ protected:
     void OnRun(int server_socket);
     void WorkerThread(int client_socket);
 
-    // Implementation with ThreadPool
-    void OnRunImpl2(int server_socket);
-
 private:
     // Logger instance
     std::shared_ptr<spdlog::logger> _logger;
@@ -66,9 +63,6 @@ private:
 
     std::condition_variable _final;
 };
-
-// Implementation for perform on the ThreadPool
-void WorkerThreadImpl2(std::shared_ptr<Afina::Storage> pStorage, std::shared_ptr<spdlog::logger> _logger, int client_socket);
 
 } // namespace MTblocking
 } // namespace Network

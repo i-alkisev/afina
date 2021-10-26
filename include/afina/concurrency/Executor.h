@@ -33,7 +33,7 @@ class Executor {
     };
 
 public:
-    Executor(size_t low_watermark, size_t hight_watermark, size_t max_queue_size, std::chrono::duration<size_t, std::milli> idle_time):
+    Executor(size_t low_watermark, size_t hight_watermark, size_t max_queue_size, std::chrono::milliseconds idle_time):
     working_threads_(0),
     state_(State::kStopped),
     low_watermark_(low_watermark),
@@ -41,9 +41,9 @@ public:
     max_queue_size_(max_queue_size),
     idle_time_(idle_time) {}
 
-    ~Executor() { Stop(); }
+    ~Executor() { Stop(true); }
 
-    void Run();
+    void Start();
 
     /**
      * Signal thread pool to stop, it will stop accepting new jobs and close threads just after each become
@@ -73,7 +73,7 @@ public:
         tasks_.push_back(exec);
 
         // Create new thread if queue wasn't empty and hight_watermark_ isn't reached
-        if (tasks_.size() > 1 && working_threads_ < hight_watermark_) {
+        if (tasks_.size() > working_threads_ && working_threads_ < hight_watermark_) {
             ++working_threads_;
             std::thread t(perform, this);
             t.detach();
@@ -122,7 +122,7 @@ private:
     State state_;
 
     size_t low_watermark_, hight_watermark_, max_queue_size_;
-    std::chrono::duration<size_t, std::milli> idle_time_;
+    std::chrono::milliseconds idle_time_;
     std::condition_variable stopping_condition_;
 };
 

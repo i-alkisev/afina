@@ -3,7 +3,7 @@
 namespace Afina {
 namespace Concurrency {
 
-void Executor::Run() {
+void Executor::Start() {
     std::unique_lock<std::mutex> lock(mutex_);
     if (state_ == State::kRun) return;
 
@@ -21,18 +21,14 @@ void Executor::Stop(bool await) {
 
     if (state_ == State::kStopped) return;
     
-    if (await) {
-        state_ = State::kStopped;
-        empty_condition_.notify_all();
-        return;
-    }
-
     state_ = State::kStopping;
-    empty_condition_.notify_all();
-    while (working_threads_ > 0) {
-        stopping_condition_.wait(lock);
+    empty_condition_.notify_all(); 
+    if (await) {
+        while (working_threads_ > 0) {
+            stopping_condition_.wait(lock);
+        }
+        state_ = State::kStopped;
     }
-    state_ = State::kStopped;
 }
 
 
@@ -41,37 +37,36 @@ void perform(Executor *executor) {
         std::function<void()> task;
 
         // Deciding what to do
-        bool was_busy = true;
         while (task == nullptr) {
             std::unique_lock<std::mutex> lock(executor->mutex_);
             if (!executor->tasks_.empty()){
                 task = executor->tasks_.front();
                 executor->tasks_.pop_front();
             }
+            else if (executor->state_ == Executor::State::kStopping) {
+                --executor->working_threads_;
+                if (executor->working_threads_ == 0) {
+                    executor->state_ = Executor::State::kStopped;
+                    executor->stopping_condition_.notify_one();
+                }
+                return;
+            }
             else {
-                if (executor->state_ == Executor::State::kStopped) {
+                auto wait_status = executor->empty_condition_.wait_for(lock, executor->idle_time_);
+                if (wait_status == std::cv_status::timeout && executor->working_threads_ > executor->low_watermark_) {
                     --executor->working_threads_;
                     return;
                 }
-                if (executor->state_ == Executor::State::kStopping) {
-                    --executor->working_threads_;
-                    if (executor->working_threads_ == 0) executor->stopping_condition_.notify_one();
-                    return;
-                }
-                if (was_busy || executor->working_threads_ <= executor->low_watermark_) {
-                    executor->empty_condition_.wait_for(lock, executor->idle_time_);
-                    was_busy = false;
-                }
-                else {
-                    --executor->working_threads_;
-                    return;
-                }
-                
             }
         }
 
         // Performing task
-        task();
+        try {
+            task();
+        }
+        catch(...) {
+            std::terminate();
+        }
     }
 }
 
