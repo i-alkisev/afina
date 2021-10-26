@@ -2,6 +2,7 @@
 set(SOURCE_FILES
     st_blocking/ServerImpl.cpp
     mt_blocking/ServerImpl.cpp
+    mt_blocking/ServerImplTP.cpp
 
     st_nonblocking/ServerImpl.cpp
     st_nonblocking/Connection.cpp
@@ -18,4 +19,4 @@ set(SOURCE_FILES
 )
 
 add_library(Network ${SOURCE_FILES})
-target_link_libraries(Network pthread Logging Protocol Execute Coroutine ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(Network pthread Logging Protocol Execute Coroutine Concurrency ${CMAKE_THREAD_LIBS_INIT})
