@@ -143,16 +143,16 @@ void ServerImpl::OnRun() {
 
             auto old_mask = pc->_event.events;
             if ((current_event.events & EPOLLERR) || (current_event.events & EPOLLHUP)) {
-                pc->OnError();
+                pc->OnError(_logger);
             } else if (current_event.events & EPOLLRDHUP) {
-                pc->OnClose();
+                pc->OnClose(_logger);
             } else {
                 // Depends on what connection wants...
                 if (current_event.events & EPOLLIN) {
-                    pc->DoRead();
+                    pc->DoRead(pStorage, _logger);
                 }
                 if (current_event.events & EPOLLOUT) {
-                    pc->DoWrite();
+                    pc->DoWrite(_logger);
                 }
             }
 
@@ -163,7 +163,7 @@ void ServerImpl::OnRun() {
                 }
 
                 close(pc->_socket);
-                pc->OnClose();
+                // pc->OnClose(_logger);
 
                 delete pc;
             } else if (pc->_event.events != old_mask) {
@@ -171,7 +171,7 @@ void ServerImpl::OnRun() {
                     _logger->error("Failed to change connection event mask");
 
                     close(pc->_socket);
-                    pc->OnClose();
+                    // pc->OnClose(_logger);
 
                     delete pc;
                 }
@@ -213,10 +213,10 @@ void ServerImpl::OnNewConnection(int epoll_descr) {
         }
 
         // Register connection in worker's epoll
-        pc->Start();
+        pc->Start(_logger);
         if (pc->isAlive()) {
             if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, pc->_socket, &pc->_event)) {
-                pc->OnError();
+                pc->OnError(_logger);
                 delete pc;
             }
         }
